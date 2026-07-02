@@ -5,10 +5,10 @@
  * 输出: src/data.js (ES Module)
  *
  * 特性：自动检测 Excel 中的所有月份列，无需手动配置
- * 纯 JS 实现（使用 xlsx 库）
+ * 纯 JS 实现（使用 exceljs 库）
  */
 
-import XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { readFileSync, writeFileSync, copyFileSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -74,26 +74,31 @@ function countStars(s) {
 
 /**
  * 解析 Excel 文件（纯 JS 实现）
- * 使用 xlsx 库读取，工作表名作为年月标识（如 "202512"）
+ * 使用 exceljs 库读取，工作表名作为年月标识（如 "202512"）
  */
-function parseXlsx(filepath) {
-  const workbook = XLSX.readFile(filepath);
+export async function parseXlsx(filepath) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filepath);
 
   // 获取所有工作表数据
   const allData = {};
-  for (const sheetName of workbook.SheetNames) {
-    const worksheet = workbook.Sheets[sheetName];
-    // 将工作表转换为 JSON 数组（按行）
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+  for (const worksheet of workbook.worksheets) {
+    const rows = [];
+    worksheet.eachRow((row, rowNumber) => {
+      const values = row.values.slice(1).map(v => (v === undefined || v === null ? '' : String(v)));
+      if (rowNumber === 1) {
+        rows.push(values);
+      } else if (values.some(v => v !== '')) {
+        rows.push(values);
+      }
+    });
 
-    if (jsonData.length === 0) continue;
+    if (rows.length === 0) continue;
 
-    // 第一行是表头
-    const headers = jsonData[0].map(h => String(h).trim());
-    // 后续行是数据
-    const rows = jsonData.slice(1).filter(row => row.length > 0 && row[0]);
+    const headers = rows[0].map(h => String(h).trim());
+    const dataRows = rows.slice(1).filter(row => row.length > 0 && row[0]);
 
-    allData[sheetName] = { headers, rows };
+    allData[worksheet.name] = { headers, rows: dataRows };
   }
 
   return allData;
@@ -133,7 +138,7 @@ async function main() {
   console.log(`📄 使用文件: ${xlsxPath}`);
 
   // 解析 Excel
-  const allData = parseXlsx(xlsxPath);
+  const allData = await parseXlsx(xlsxPath);
 
   // 找出所有月份表（表名为纯数字年月 6 位）
   const monthSheets = Object.keys(allData).filter(k => /^\d{6}$/.test(k.trim()));
